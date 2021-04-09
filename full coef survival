@@ -1,0 +1,39 @@
+# this function can output the coefficient for survival analysis ,there are four parameters(stime, covar, main, data)
+#     stime: this is a vector of characters with length of 2, while will be used to calculate survival time by Surv(stime[1],stime[2]). name of (time, outcome)
+#     covar: the covariates that will be used in model
+#     main: the focused variable, so this variable will be showed at the first line of output
+#     data: the dataset whose colnames contains all the parameter showed above
+
+# this function will output a dataframe which consist of the coeffiecients of full model, so list can be used to reserve each model and export the list with several sheets by write.xlsx
+
+modelcompare <- function(stime,covar,main,data){
+  data <- data %>% 
+    dplyr::select(all_of(stime),all_of(main),all_of(covar)) %>% 
+    na.omit()
+  for (i in 1:ncol(data)){
+    if (is.character(data[,i]%>% unlist()) ) data[,i] <- as.factor(data[,i] %>% unlist())
+  }
+  s <- Surv(data[,stime[1]] %>% unlist(),data[,stime[2]] %>% unlist)
+  data <- data %>% dplyr::select(-c(all_of(stime)))
+  sx <- coxph(s~.,data = data) %>% summary()
+  ss <- sx$conf.int
+  hrtable <- cbind(hr = paste0(ss[,1] %>% round(2),'(',ss[,3] %>% round(2),'-',ss[,4] %>% round(2),')'),
+                   pvalue = ifelse(sx$coefficients[,'Pr(>|z|)'] %>% round(3) == 0,'<0.001',sx$coefficients[,'Pr(>|z|)'] %>% round(3)))
+  showcase <- NULL
+  j <- 0
+  for (i in colnames(data)){
+    j <- j+1
+    showcase <- rbind(showcase,c(i,'',''))
+    if (is.numeric(data[,i] %>% unlist())) {
+      showcase <- rbind(showcase,c(i,hrtable[j,]))
+      next()
+    }
+    showcase <- rbind(showcase,
+                      cbind(levels(data[,i] %>% unlist()),
+                            c('Reference',hrtable[,'hr'][j:(j+length(levels(data[,i] %>% unlist()))-2)]),
+                            c('',hrtable[,'pvalue'][j:(j+length(levels(data[,i] %>% unlist()))-2)])))
+    j <- j+length(levels(data[,i] %>% unlist()))-2
+  } 
+  cbind(showcase,
+        concordance = c(sx$concordance[1] %>% round(3),rep('',nrow(showcase)-1))) 
+}
