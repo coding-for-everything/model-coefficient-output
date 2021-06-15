@@ -1,0 +1,61 @@
+full_glm <- function(data,main,ref = NULL,other = NULL,merger = FALSE,covar = NULL,outcome,type){
+  if (is.null(covar)) covar <- main
+  data <- data %>% 
+    dplyr::select(all_of(main),all_of(covar),all_of(outcome))
+  colnames(data)[which(colnames(data)==main)] <- 'index'
+  colnames(data)[which(colnames(data)==outcome)] <- 'outcome'
+  data <- na.omit(data)
+  
+  temp <- data.frame(n = nrow(data),
+                     event = sum(data$outcome)) %>% as.data.frame()
+  
+  if (!is.numeric(data$index)){
+    if (is.null(ref)|is.null(other)) return('Please clarify parameters: ref/other')
+    
+    data <- data %>% 
+      filter(index %in% c(all_of(ref),all_of(other))) %>% 
+      mutate(index = as.factor(index) %>% relevel(ref = all_of(ref)))
+    # if (merge == TRUE) data$index <- ifelse(index == ref,ref,other[1]) %>% as.factor() %>% relevel(ref = all_of(ref))
+    
+    temp <- data %>% 
+      group_by(index) %>% 
+      summarise(n = n(),
+                event = ifelse(is.numeric(outcome),sum(outcome),sum(as.numeric(str_extract(outcome,'[0-9]')))))# %>% 
+    # cbind(table(data$index %>% as.character()),.) %>% as.data.frame()
+  }
+  
+  # colnames(temp)[1] <- 'index'
+  for (i in colnames(data)){
+    if (is.character(data[,i])) data[,i] <- as.factor(data[,i] %>% unlist())
+  }
+  
+  if (type == 'rr') t <- glm(outcome~.,data = data,family = 'poisson') %>% summary()
+  if (type == 'or') t <- glm(outcome~.,data = data,family = 'binomial') %>% summary()
+  
+  t <- t$coefficients %>% as.data.frame() %>% .[-1,]
+  table <- cbind(risk = paste0(exp(t[,1]) %>% round(2),' (',
+                               exp(t[,1] - 1.96*t[,2]) %>% round(2),'-',
+                               exp(t[,1] + 1.96*t[,2]) %>% round(2),')'),
+                 pvalue = ifelse((t[,'Pr(>|z|)'] %>% round(3))==0,'<0.001',t[,'Pr(>|z|)'] %>% round(3)))
+  
+  showcase <- NULL
+  j <- 0
+  for (i in colnames(data %>% dplyr::select(-outcome))){
+    j <- j+1
+    showcase <- rbind(showcase,c(i,'',''))
+    if (is.numeric(data[,i])){
+      showcase <- rbind(showcase,c(paste0('   ',i),table[j,]))
+      next()
+    }
+    showcase <- rbind(showcase,
+                      cbind(levels(data[,i]) %>% unlist() %>% paste0('   ',.),
+                            c('Reference',table[,'risk'][j:(j+length(levels(data[,i]))-2)]),
+                            c('',table[,'pvalue'][j:(j+length(levels(data[,i]))-2)])))
+    j <- j+length(levels(data[,i]))-2
+  }
+  colnames(showcase) <- c('Variable',type,'pvalue')
+  showcase[1,1] <- main
+  cbind(showcase,
+        n = c('',temp$n,rep('',nrow(showcase)-nrow(temp)-1)),
+        event = c('',temp$event,rep('',nrow(showcase)-nrow(temp)-1))) 
+}
